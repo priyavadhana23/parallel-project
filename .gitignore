@@ -1,0 +1,11 @@
+# Large data files
+*_Data.csv
+*_results.csv
+results.csv
+run_history.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
