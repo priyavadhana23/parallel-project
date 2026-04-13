@@ -19,6 +19,7 @@ REGIONS = {
     "🌉 California Region (USA)":    {"file": "California_Region_Data.csv",  "center": [36.5, -120.2]},
     "🏔️ Kashmir Region (India)":     {"file": "Kashmir_Region_Data.csv",     "center": [33.8, 74.5]},
     "🌾 Tamil Nadu Region (India)":  {"file": "TamilNadu_Region_Data.csv",   "center": [10.5, 79.0]},
+    "🚀 Arid Region 1M (Large Scale)": {"file": "Arid_Region_1M_Data.csv", "center": [26.0, 73.0]},
 }
 # Auto-detect any future *_Region_Data.csv files
 for f in sorted(glob.glob("*_Region_Data.csv")):
@@ -84,8 +85,20 @@ with st.sidebar:
 
     st.divider()
     st.markdown("## ⚙️ Run Controls")
+    
+    # Parallel mode selection
+    parallel_mode = st.radio(
+        "Parallel Processing Mode",
+        ["Data Parallel (Scatter/Gather)", "Pipeline Parallel (Sequential Stages)"],
+        help="Data Parallel: All workers do same task on different data chunks.\n\nPipeline Parallel: Different workers do different tasks in sequence."
+    )
+    
     n_workers = st.slider("MPI Workers (CPU Cores)", 1, 8, 4)
-    st.caption(f"Using **{n_workers} core(s)** — more cores = faster processing")
+    if parallel_mode == "Pipeline Parallel (Sequential Stages)" and n_workers < 4:
+        st.warning("⚠️ Pipeline mode requires at least 4 workers. Adjusting to 4.")
+        n_workers = 4
+    
+    st.caption(f"Using **{n_workers} core(s)** — {parallel_mode.split(' ')[0].lower()} parallelism")
     run_clicked = st.button("▶ Run Parallel Analysis", use_container_width=True, type="primary")
 
     st.divider()
@@ -102,14 +115,16 @@ with st.sidebar:
         st.caption("No runs yet. Click Run to start.")
     else:
         for h in reversed(history[-8:]):
-            fastest = min(r["time_sec"] for r in history if r["workers"] == h["workers"] and r.get("region") == h.get("region"))
+            fastest = min(r["time_sec"] for r in history if r["workers"] == h["workers"] and r.get("region") == h.get("region") and r.get("mode") == h.get("mode"))
             badge = " 🏆" if h["time_sec"] == fastest else ""
+            mode_badge = f" 🔄" if h.get("mode") == "Pipeline" else " 📦"
             st.markdown(
                 f'<div class="history-row">'
                 f'🕐 <b>{h["timestamp"]}</b><br>'
                 f'📍 {h.get("region","—")}<br>'
                 f'Workers: <b>{h["workers"]}</b> &nbsp;|&nbsp; '
                 f'Time: <b>{h["time_sec"]}s</b>{badge}<br>'
+                f'Mode: <b>{h.get("mode", "Data Parallel")}</b>{mode_badge} &nbsp;|&nbsp; '
                 f'Rows: {h["rows"]:,}'
                 f'</div>',
                 unsafe_allow_html=True
@@ -117,18 +132,42 @@ with st.sidebar:
 
 # ── Run MPI ───────────────────────────────────────────────────────────────────
 if run_clicked:
+    # Determine which process file to use
+    process_file = "process_pipeline.py" if "Pipeline" in parallel_mode else "process.py"
+    
     # ── Live Worker Heartbeat ──────────────────────────────────────────────────
     heartbeat_placeholder = st.empty()
     colors_hb = ["#c0392b","#1a5276","#1e8449","#b7770d","#6c3483","#117a65","#784212","#2c3e50"]
-    worker_cards = "".join([
-        f"""<div style='display:inline-block;margin:6px;text-align:center;width:80px'>
-            <div style='width:52px;height:52px;border-radius:50%;background:{colors_hb[i % 8]};
-                margin:0 auto;display:flex;align-items:center;justify-content:center;
-                font-size:22px;animation:pulse 1.2s ease-in-out {i*0.15:.2f}s infinite;'>⚙️</div>
-            <div style='font-size:11px;font-weight:700;color:#0d1b2a;margin-top:6px'>Worker {i}<br>
-            <span style='color:#27ae60;font-size:10px'>● ACTIVE</span></div></div>"""
-        for i in range(n_workers)
-    ])
+    
+    if "Pipeline" in parallel_mode:
+        # Pipeline mode - show different tasks per worker
+        pipeline_tasks = ["Coordinator", "Vegetation (NDVI+SAVI)", "Water (LSWI+MSI)", "Soil+Risk (BSI+Alerts)"]
+        worker_cards = "".join([
+            f"""<div style='display:inline-block;margin:6px;text-align:center;width:140px'>
+                <div style='width:52px;height:52px;border-radius:50%;background:{colors_hb[i % 8]};
+                    margin:0 auto;display:flex;align-items:center;justify-content:center;
+                    font-size:22px;animation:pulse 1.2s ease-in-out {i*0.3:.2f}s infinite;'>⚙️</div>
+                <div style='font-size:10px;font-weight:700;color:#0d1b2a;margin-top:6px'>Worker {i}<br>
+                <span style='font-size:9px;color:#555'>{pipeline_tasks[i] if i < len(pipeline_tasks) else 'Extra'}</span><br>
+                <span style='color:#27ae60;font-size:10px'>● ACTIVE</span></div></div>"""
+            for i in range(n_workers)
+        ])
+        mode_desc = f"🚀 Pipeline Processing — {n_workers} Workers in Sequential Stages"
+        flow_desc = "Data flows: Worker 0 → Worker 1 → Worker 2 → Worker 3 → Worker 0"
+    else:
+        # Data parallel mode - all workers do same task
+        worker_cards = "".join([
+            f"""<div style='display:inline-block;margin:6px;text-align:center;width:80px'>
+                <div style='width:52px;height:52px;border-radius:50%;background:{colors_hb[i % 8]};
+                    margin:0 auto;display:flex;align-items:center;justify-content:center;
+                    font-size:22px;animation:pulse 1.2s ease-in-out {i*0.15:.2f}s infinite;'>⚙️</div>
+                <div style='font-size:11px;font-weight:700;color:#0d1b2a;margin-top:6px'>Worker {i}<br>
+                <span style='color:#27ae60;font-size:10px'>● ACTIVE</span></div></div>"""
+            for i in range(n_workers)
+        ])
+        mode_desc = f"🚀 Data Parallel Processing — {n_workers} Workers on Different Data Chunks"
+        flow_desc = f"Processing {total_rows:,} rows split across {n_workers} workers simultaneously"
+    
     heartbeat_placeholder.markdown(f"""
     <style>
     @keyframes pulse {{
@@ -138,17 +177,17 @@ if run_clicked:
     </style>
     <div style='background:#0d1b2a;border-radius:14px;padding:18px 24px;margin-bottom:12px'>
         <div style='color:white;font-size:15px;font-weight:800;margin-bottom:12px'>
-            🚀 MPI Workers Running — {n_workers} Core(s) Active on {selected_region}
+            {mode_desc} on {selected_region}
         </div>
         <div>{worker_cards}</div>
-        <div style='color:#aaa;font-size:12px;margin-top:12px'>⏳ Processing {total_rows:,} rows in parallel...</div>
+        <div style='color:#aaa;font-size:12px;margin-top:12px'>⏳ {flow_desc}</div>
     </div>
     """, unsafe_allow_html=True)
 
     t0 = time.time()
     result = subprocess.run(
         ["/opt/homebrew/bin/mpiexec", "-n", str(n_workers),
-         "/opt/anaconda3/bin/python3", "process.py", DATA_FILE, RESULT_FILE],
+         "/opt/anaconda3/bin/python3", process_file, DATA_FILE, RESULT_FILE],
         capture_output=True, text=True
     )
     elapsed = round(time.time() - t0, 2)
@@ -160,9 +199,11 @@ if run_clicked:
             "region": selected_region,
             "workers": n_workers,
             "time_sec": elapsed,
-            "rows": total_rows
+            "rows": total_rows,
+            "mode": "Pipeline" if "Pipeline" in parallel_mode else "Data Parallel"
         })
-        st.success(f"✅ Done! Processed {total_rows:,} rows in **{elapsed}s** using **{n_workers} core(s)**")
+        mode_name = "pipeline" if "Pipeline" in parallel_mode else "data parallel"
+        st.success(f"✅ Done! Processed {total_rows:,} rows in **{elapsed}s** using **{n_workers} core(s)** ({mode_name})")
         st.rerun()
     else:
         st.error("MPI failed")
@@ -370,51 +411,143 @@ for _, row in sample.iterrows():
 st_folium(m, width="100%", height=480)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ── NDVI / LSWI / SAVI / BSI / MSI ──────────────────────────────────────────
-col_a, col_b = st.columns(2)
-with col_a:
-    st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.markdown('<div class="section-heading">🌿 NDVI — Vegetation Health</div>', unsafe_allow_html=True)
-    st.markdown("""<div class="section-desc">Measures how green and alive the crops are.<br>
-        🔴 <b>Below 0.2</b> → Bare soil / Drought &nbsp;|&nbsp;
-        🟡 <b>0.2–0.4</b> → Stressed crops &nbsp;|&nbsp;
-        🟢 <b>Above 0.4</b> → Healthy crops</div>""", unsafe_allow_html=True)
-    st.bar_chart(df["NDVI"].dropna().round(1).value_counts().sort_index().rename("Farm Points"), color="#27ae60")
-    st.markdown('</div>', unsafe_allow_html=True)
+# ── Charts removed - now only clickable index icons below ──
 
-with col_b:
-    st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.markdown('<div class="section-heading">💧 LSWI — Soil Water Content</div>', unsafe_allow_html=True)
-    st.markdown("""<div class="section-desc">Measures how much water is in the soil and leaves.<br>
-        🔴 <b>Below 0.2</b> → Critical water stress &nbsp;|&nbsp;
-        🟡 <b>0.2–0.4</b> → Low moisture &nbsp;|&nbsp;
-        🟢 <b>Above 0.4</b> → Adequate water</div>""", unsafe_allow_html=True)
-    st.bar_chart(df["LSWI"].dropna().round(1).value_counts().sort_index().rename("Farm Points"), color="#3498db")
-    st.markdown('</div>', unsafe_allow_html=True)
+# ── Satellite Index Icons - Interactive Dashboard ────────────────────────────
+st.markdown('<div class="section-box">', unsafe_allow_html=True)
+st.markdown('<div class="section-heading">🛰️ Interactive Satellite Index Dashboard</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-desc">Hover over cards to see descriptions, click to analyze. Each index reveals different agricultural insights.</div>', unsafe_allow_html=True)
 
-if "SAVI" in df.columns:
-    col_c, col_d, col_e = st.columns(3)
-    with col_c:
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.markdown('<div class="section-heading">🌱 SAVI — Soil-Adjusted Vegetation</div>', unsafe_allow_html=True)
-        st.markdown("""<div class="section-desc">Like NDVI but corrected for bare soil — more accurate in dry/arid regions.<br>
-            🔴 <b>Below 0.2</b> → Sparse/no vegetation &nbsp;|&nbsp; 🟢 <b>Above 0.4</b> → Good crop cover</div>""", unsafe_allow_html=True)
-        st.bar_chart(df["SAVI"].dropna().round(1).value_counts().sort_index().rename("Farm Points"), color="#1e8449")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_d:
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.markdown('<div class="section-heading">🟤 BSI — Bare Soil Index</div>', unsafe_allow_html=True)
-        st.markdown("""<div class="section-desc">Detects how much land has zero crop cover — exposed bare soil.<br>
-            🟤 <b>Above 0</b> → Bare soil detected &nbsp;|&nbsp; 🟢 <b>Below 0</b> → Vegetation present</div>""", unsafe_allow_html=True)
-        st.bar_chart(df["BSI"].dropna().round(1).value_counts().sort_index().rename("Farm Points"), color="#a04000")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_e:
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.markdown('<div class="section-heading">💦 MSI — Plant Moisture Stress</div>', unsafe_allow_html=True)
-        st.markdown("""<div class="section-desc">Measures if the plant itself is dehydrated (different from soil water).<br>
-            🔴 <b>Above 1.0</b> → Plant is water stressed &nbsp;|&nbsp; 🟢 <b>Below 1.0</b> → Plant hydrated</div>""", unsafe_allow_html=True)
-        st.bar_chart(df["MSI"].dropna().round(1).value_counts().sort_index().rename("Farm Points"), color="#1a5276")
-        st.markdown('</div>', unsafe_allow_html=True)
+# Add custom CSS for attractive cards
+st.markdown("""
+<style>
+.index-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 15px;
+    padding: 20px;
+    margin: 10px 5px;
+    text-align: center;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border: none;
+    width: 100%;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.index-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+.index-icon {
+    font-size: 2.5em;
+    margin-bottom: 8px;
+}
+.index-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.index-subtitle {
+    font-size: 11px;
+    opacity: 0.9;
+    line-height: 1.3;
+}
+.chart-container {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 15px 0;
+    border-left: 4px solid #3498db;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Create attractive index cards with categories
+vegetation_indices = {
+    "🌱 NDVI": {"name": "Vegetation Health", "data": "NDVI", "desc": "Primary crop vitality indicator", "color": "#27ae60"},
+    "🌿 EVI": {"name": "Enhanced Vegetation", "data": "EVI", "desc": "Advanced vegetation monitoring", "color": "#2ecc71"},
+    "🌱 SAVI": {"name": "Soil-Adjusted Vegetation", "data": "SAVI", "desc": "Vegetation corrected for soil", "color": "#1e8449"},
+    "💚 GNDVI": {"name": "Green Vegetation", "data": "GNDVI", "desc": "Green leaf assessment", "color": "#16a085"},
+}
+
+water_indices = {
+    "💧 LSWI": {"name": "Surface Water", "data": "LSWI", "desc": "Soil & leaf water content", "color": "#3498db"},
+    "💦 MSI": {"name": "Moisture Stress", "data": "MSI", "desc": "Plant dehydration detector", "color": "#2980b9"},
+}
+
+soil_indices = {
+    "🏔️ BSI": {"name": "Bare Soil", "data": "BSI", "desc": "Exposed soil detection", "color": "#a04000"},
+    "🏜️ DSI": {"name": "Drought Stress", "data": "DSI", "desc": "Drought condition analysis", "color": "#e74c3c"},
+}
+
+advanced_indices = {
+    "🌪️ ARVI": {"name": "Atmospheric Resistant", "data": "ARVI", "desc": "Weather-corrected analysis", "color": "#9b59b6"},
+    "🔬 SIPI": {"name": "Pigment Structure", "data": "SIPI", "desc": "Chlorophyll ratio analysis", "color": "#e67e22"},
+    "🌍 GEMI": {"name": "Global Monitoring", "data": "GEMI", "desc": "Non-linear vegetation index", "color": "#34495e"},
+}
+
+# Display categories with attractive cards
+categories = [
+    ("🌿 Vegetation Health", vegetation_indices, "#27ae60"),
+    ("💧 Water & Moisture", water_indices, "#3498db"),
+    ("🏔️ Soil Analysis", soil_indices, "#e67e22"),
+    ("🔬 Advanced Indices", advanced_indices, "#9b59b6")
+]
+
+for category_name, indices, category_color in categories:
+    if any(info["data"] in df.columns for info in indices.values()):
+        st.markdown(f"**{category_name}**")
+        cols = st.columns(len([info for info in indices.values() if info["data"] in df.columns]))
+        
+        col_idx = 0
+        for icon_name, info in indices.items():
+            if info["data"] in df.columns:
+                with cols[col_idx]:
+                    # Create attractive button with custom HTML
+                    button_html = f"""
+                    <div class="index-card" style="background: linear-gradient(135deg, {info['color']}22 0%, {info['color']}44 100%); border-left: 4px solid {info['color']};">
+                        <div class="index-icon">{icon_name.split()[0]}</div>
+                        <div class="index-title">{info['name']}</div>
+                        <div class="index-subtitle">{info['desc']}</div>
+                    </div>
+                    """
+                    
+                    if st.button(f"{icon_name}\n{info['name']}", key=f"btn_{info['data']}", help=info['desc']):
+                        # Show chart in attractive container
+                        st.markdown(f'<div class="chart-container">', unsafe_allow_html=True)
+                        
+                        # Header with icon and description
+                        st.markdown(f"### {icon_name} {info['name']}")
+                        st.markdown(f"*{info['desc']}*")
+                        
+                        # Create enhanced chart
+                        chart_data = df[info['data']].dropna().round(2).value_counts().sort_index().rename("Farm Points")
+                        
+                        # Add interpretation guide
+                        if info['data'] == 'NDVI':
+                            st.info("📊 **Interpretation:** < 0.2 = Bare soil/Drought | 0.2-0.4 = Stressed crops | > 0.4 = Healthy vegetation")
+                        elif info['data'] == 'LSWI':
+                            st.info("📊 **Interpretation:** < 0.2 = Water stress | 0.2-0.4 = Moderate moisture | > 0.4 = Good water content")
+                        elif info['data'] == 'BSI':
+                            st.info("📊 **Interpretation:** > 0 = Bare soil detected | < 0 = Vegetation cover present")
+                        elif info['data'] == 'MSI':
+                            st.info("📊 **Interpretation:** > 1.0 = Plant water stressed | < 1.0 = Plant well hydrated")
+                        
+                        # Enhanced chart with better styling
+                        st.bar_chart(chart_data, color=info['color'])
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                col_idx += 1
+        
+        st.markdown("---")
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Alert Breakdown ───────────────────────────────────────────────────────────
 st.markdown('<div class="section-box">', unsafe_allow_html=True)
@@ -429,12 +562,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Speedup Graph + Amdahl's Law ─────────────────────────────────────────────
 st.markdown('<div class="section-box">', unsafe_allow_html=True)
-st.markdown('<div class="section-heading">⚡ Amdahl\'s Law — Theoretical Limit vs Your Actual Speedup</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-desc">'
-    '<b>Speedup</b> = how many times faster than 1 worker. '
-    'Amdahl\'s Law says there is a <b>ceiling</b> — no matter how many workers you add, '
-    'the non-parallelizable parts (file load, scatter, gather) always take the same time. '
-    'The curve flattens out and you can never cross the ceiling.</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-heading">⚡ Amdahl\'s Law — Why More Workers Don\'t Always Mean Faster</div>', unsafe_allow_html=True)
 
 history = load_history()
 region_history = [h for h in history if h.get("region") == selected_region]
@@ -461,32 +589,69 @@ else:
     p = 0.8  # default assumption: 80% parallelizable
 
 amdahl_speedup = [1 / ((1 - p) + p / n) for n in worker_range]
-amdahl_df = pd.DataFrame({"Amdahl's Law (Theoretical Limit)": amdahl_speedup}, index=worker_range)
+amdahl_df = pd.DataFrame({"🔵 Theoretical Ceiling (Amdahl's Law)": amdahl_speedup}, index=worker_range)
 amdahl_df.index.name = "Workers"
 
 if baseline:
     best_times = history_df.groupby("workers")["time_sec"].min().sort_index()
     actual_speedup = (baseline / best_times).round(2)
-    amdahl_df["Your Actual Speedup"] = actual_speedup
+    amdahl_df["🔴 Your Actual Results"] = actual_speedup
     # Efficiency = Speedup / Workers
     efficiency = (actual_speedup / pd.Series(best_times.index, index=best_times.index) * 100).round(1)
 
 st.line_chart(amdahl_df)
-st.caption("📌 X-axis = number of workers | Y-axis = speedup (1.0 = same as 1 worker, 2.0 = twice as fast). "
-           "The curve flattens = Amdahl's ceiling.")
 
-# Sweet spot note
+# Visual efficiency breakdown
 if baseline:
+    st.markdown("**⚡ Efficiency Breakdown**")
+    eff_cols = st.columns(len(best_times))
+    for i, (workers, eff_val) in enumerate(zip(best_times.index, efficiency.values)):
+        with eff_cols[i]:
+            eff_color = "#27ae60" if eff_val >= 80 else "#f39c12" if eff_val >= 50 else "#e74c3c"
+            st.markdown(f"""
+            <div style='text-align:center;margin-bottom:10px'>
+                <div style='font-size:24px;font-weight:800;color:{eff_color}'>{eff_val:.0f}%</div>
+                <div style='width:60px;height:60px;border-radius:50%;background:conic-gradient({eff_color} {eff_val*3.6}deg, #eee 0deg);margin:0 auto;display:flex;align-items:center;justify-content:center'>
+                    <div style='width:40px;height:40px;border-radius:50%;background:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700'>{workers}</div>
+                </div>
+                <div style='font-size:11px;margin-top:4px'>Workers</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Sweet spot visual indicator
     best_times = history_df.groupby("workers")["time_sec"].min()
     sweet_spot = int(best_times.idxmin())
     sweet_time = best_times.min()
+    
     if sweet_spot == 1:
-        st.warning(f"⚠️ **Sweet Spot: 1 Worker ({sweet_time}s)** — For this dataset size (~{total_rows:,} rows), "
-                   "MPI communication overhead exceeds the computation gain. "
-                   "Parallelism becomes beneficial at ~10M+ rows where compute time dominates overhead.")
+        st.markdown(f"""
+        <div style='background:#fff3cd;border-left:4px solid #ffc107;padding:15px;border-radius:8px;margin-top:15px'>
+            <div style='font-size:16px;font-weight:800;color:#856404;margin-bottom:8px'>⚠️ Dataset Too Small for Parallelism</div>
+            <div style='display:flex;align-items:center;gap:20px'>
+                <div style='font-size:48px'>📊</div>
+                <div>
+                    <div style='font-size:14px;color:#856404'><b>Sweet Spot:</b> 1 Worker ({sweet_time}s)</div>
+                    <div style='font-size:12px;color:#6c757d'>Coordination overhead > Computation savings</div>
+                    <div style='font-size:12px;color:#6c757d'>Need ~10M+ rows for parallel benefits</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success(f"✅ **Sweet Spot: {sweet_spot} Workers ({sweet_time}s)** — This is the optimal core count "
-                   "for this dataset. Beyond this point, coordination overhead starts to outweigh the gains.")
+        st.markdown(f"""
+        <div style='background:#d4edda;border-left:4px solid #28a745;padding:15px;border-radius:8px;margin-top:15px'>
+            <div style='font-size:16px;font-weight:800;color:#155724;margin-bottom:8px'>✅ Optimal Parallel Configuration</div>
+            <div style='display:flex;align-items:center;gap:20px'>
+                <div style='font-size:48px'>🎯</div>
+                <div>
+                    <div style='font-size:14px;color:#155724'><b>Sweet Spot:</b> {sweet_spot} Workers ({sweet_time}s)</div>
+                    <div style='font-size:12px;color:#6c757d'>Best balance of parallel gains vs overhead</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+else:
+    st.info("Run with **1 worker** to unlock visual efficiency analysis and sweet spot detection.")
 
 if baseline:
     st.markdown("---")
