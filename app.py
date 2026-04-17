@@ -633,6 +633,7 @@ with tab3:
         st.info("👆 Select two regions and click **Compare Regions** to start analysis.")
 
 with tab1:
+    st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
     # ── Dashboard Header ────────────────────────────────────────────────────────
     st.markdown(f"""
     <div style='background:linear-gradient(135deg,#1e3a5f,#0d1b2a);border-radius:16px;padding:28px 32px;margin-bottom:24px;color:white'>
