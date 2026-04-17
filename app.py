@@ -470,7 +470,7 @@ with tab1:
         <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px'>
             <div>
                 <div style='font-size:24px;font-weight:900;letter-spacing:1px'>🌾 Agricultural Risk Dashboard</div>
-                <div style='font-size:13px;opacity:0.8;margin-top:4px'>Satellite-powered parallel analysis · Real-time regional monitoring</div>
+                <div style='font-size:13px;opacity:0.8;margin-top:4px'></div>
             </div>
             <div style='text-align:right'>
                 <div style='font-size:11px;opacity:0.7;text-transform:uppercase;letter-spacing:1px'>Active Mode</div>
@@ -698,7 +698,6 @@ with tab1:
     # ── Map ───────────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-heading">🗺️ Farm Risk Map — {selected_region}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-desc">Each dot = one satellite pixel. Color shows risk level. <b>Hover</b> to see NDVI, LSWI and coordinates. Showing 2,000 sampled points.</div>', unsafe_allow_html=True)
 
     ALERT_COLOR = {"Drought":"red","Water Stress":"orange","Healthy":"green","Moderate":"blue"}
     sample = df.sample(min(2000, len(df)), random_state=42)
@@ -720,7 +719,6 @@ with tab1:
     # ── Speedup Graph + Amdahl's Law ─────────────────────────────────────────────
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-heading">⚡ Amdahl\'s Law — Why More Workers Don\'t Always Mean Faster</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-desc">Comparing theoretical scalability with your actual hardware performance.</div>', unsafe_allow_html=True)
 
     # Load fresh history for the graph
     history_data = load_history()
@@ -805,7 +803,6 @@ with tab1:
     # ── Satellite Index Icons - Interactive Dashboard ────────────────────────────
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
     st.markdown('<div class="section-heading">🛰️ Interactive Satellite Index Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-desc">Hover over cards to see descriptions, click to analyze. Each index reveals different agricultural insights.</div>', unsafe_allow_html=True)
 
     # Add custom CSS for attractive cards
     st.markdown("""
