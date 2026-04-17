@@ -362,6 +362,132 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
 
+        # ── Crop Recommendation ─────────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">🌾 Crop Recommendation</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-desc">Based on satellite indices and soil health analysis for this region.</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Read NDVI, LSWI, BSI averages from results
+        ndvi_avg = float(df["NDVI"].mean()) if "NDVI" in df.columns else 0.3
+        lswi_avg = float(df["LSWI"].mean()) if "LSWI" in df.columns else 0.2
+        bsi_avg  = float(df["BSI"].mean())  if "BSI"  in df.columns else 0.0
+
+        n_status  = report["nitrogen"]["status"]
+        p_status  = report["phosphorus"]["status"]
+        k_status  = report["potassium"]["status"]
+        ph_val    = report["ph"]["value"]
+        ph_status = report["ph"]["status"]
+
+        # Build recommendations based on conditions
+        recommendations = []
+
+        if ndvi_avg > 0.4 and n_status == "Ideal":
+            recommendations.append({
+                "crop": "🌾 Rice & Wheat",
+                "status": "✅ Highly Suitable",
+                "color": "#27ae60",
+                "reason": f"NDVI {ndvi_avg:.2f} shows healthy vegetation. Nitrogen is ideal for cereal crops.",
+                "action": "Maintain current irrigation and fertilization schedule."
+            })
+
+        if ndvi_avg > 0.35 and k_status == "Ideal" and lswi_avg > 0.3:
+            recommendations.append({
+                "crop": "🍌 Sugarcane & Banana",
+                "status": "✅ Suitable",
+                "color": "#2ecc71",
+                "reason": f"Good moisture (LSWI {lswi_avg:.2f}) and ideal potassium support water-intensive crops.",
+                "action": "Ensure consistent water supply. Monitor for pest infestation."
+            })
+
+        if ndvi_avg > 0.3 and p_status == "Ideal":
+            recommendations.append({
+                "crop": "🌱 Vegetables & Pulses",
+                "status": "✅ Suitable",
+                "color": "#16a085",
+                "reason": f"Phosphorus is ideal supporting root development. Moderate vegetation cover.",
+                "action": "Good for short-duration crops. Rotate with legumes to maintain soil health."
+            })
+
+        if bsi_avg > 0.1 and ph_val > 7.5:
+            recommendations.append({
+                "crop": "🌵 Drought-Resistant Crops (Millets, Sorghum)",
+                "status": "⚠️ Conditionally Suitable",
+                "color": "#f39c12",
+                "reason": f"High bare soil (BSI {bsi_avg:.2f}) and alkaline pH {ph_val} indicate dry conditions.",
+                "action": "Apply lime to reduce alkalinity. Choose drought-tolerant varieties."
+            })
+
+        if ndvi_avg < 0.2 and n_status == "Low":
+            recommendations.append({
+                "crop": "🌿 Any Crop — After Treatment",
+                "status": "🔴 Not Suitable Currently",
+                "color": "#e74c3c",
+                "reason": f"NDVI {ndvi_avg:.2f} is critically low. Nitrogen deficiency detected.",
+                "action": "Apply Urea fertilizer at split intervals. Start drip irrigation immediately before sowing."
+            })
+
+        if lswi_avg < 0.1 and bsi_avg > 0.2:
+            recommendations.append({
+                "crop": "🌵 Cactus / Xerophytes Only",
+                "status": "🔴 Severe Drought Conditions",
+                "color": "#c0392b",
+                "reason": f"Extremely low water content (LSWI {lswi_avg:.2f}) and high bare soil.",
+                "action": "Land needs water harvesting and soil restoration before any crop cultivation."
+            })
+
+        if ndvi_avg >= 0.2 and ndvi_avg <= 0.4 and n_status in ["Low", "Ideal"]:
+            recommendations.append({
+                "crop": "🌼 Cotton & Groundnut",
+                "status": "⚠️ Moderately Suitable",
+                "color": "#e67e22",
+                "reason": f"Moderate vegetation (NDVI {ndvi_avg:.2f}). Semi-arid crops can adapt to these conditions.",
+                "action": "Apply balanced NPK fertilizer. Use mulching to retain soil moisture."
+            })
+
+        # If no specific recommendation matched
+        if not recommendations:
+            recommendations.append({
+                "crop": "🌻 General Farming",
+                "status": "⚠️ Moderate Conditions",
+                "color": "#3498db",
+                "reason": "Soil and vegetation conditions are moderate.",
+                "action": "Conduct detailed soil testing before selecting specific crops."
+            })
+
+        # Display recommendation cards
+        for rec in recommendations:
+            st.markdown(f"""
+            <div style='background:white;border-radius:14px;padding:20px 26px;margin-bottom:14px;
+                        box-shadow:0 3px 14px rgba(0,0,0,0.08);border-left:5px solid {rec["color"]}'>
+                <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px'>
+                    <div style='flex:1;min-width:200px'>
+                        <div style='font-size:18px;font-weight:900;color:{rec["color"]}'>{rec["crop"]}</div>
+                        <div style='display:inline-block;background:{rec["color"]}22;color:{rec["color"]};
+                                    border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700;margin-top:6px'>
+                            {rec["status"]}</div>
+                    </div>
+                    <div style='flex:2;min-width:240px;border-left:1px solid #eee;padding-left:20px'>
+                        <div style='font-size:13px;color:#555;margin-bottom:6px'>📊 <b>Why:</b> {rec["reason"]}</div>
+                        <div style='font-size:13px;color:#27ae60'>💡 <b>Action:</b> {rec["action"]}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Disclaimer
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='background:#f8f9fa;border-radius:10px;padding:16px 20px;border:1px solid #dee2e6'>
+            <div style='font-size:12px;font-weight:700;color:#666;margin-bottom:6px'>⚠️ DISCLAIMER</div>
+            <div style='font-size:11px;color:#888;line-height:1.7'>
+                This report is generated from satellite imagery (Sentinel-2, 10m resolution) using MPI parallel computing.
+                Soil parameters are estimated using spectral index correlations and may differ from laboratory tests.
+                Values are region-level averages across all analyzed pixels. Not to be used as sole basis for agricultural decisions.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 with tab1:
     # ── Dashboard Header ────────────────────────────────────────────────────────
     st.markdown(f"""
