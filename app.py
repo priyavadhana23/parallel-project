@@ -244,7 +244,7 @@ st.divider()
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["🌾 Agricultural Dashboard", "🧪 Soil Analysis Report"])
+tab1, tab2, tab3 = st.tabs(["🌾 Agricultural Dashboard", "🧪 Soil Analysis Report", "🔍 Region Comparison"])
 
 with tab2:
     SOIL_REPORT_FILE = RESULT_FILE.replace("_results.csv", "_soil_report.json")
@@ -462,6 +462,175 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
 
+
+with tab3:
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Region selectors
+    available_regions = {k: v for k, v in REGIONS.items() if os.path.exists(v["file"])}
+    region_keys = list(available_regions.keys())
+
+    col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
+    with col_r1:
+        region1 = st.selectbox("🌍 Region 1", region_keys, index=0, key="comp_r1")
+    with col_r2:
+        region2 = st.selectbox("🌍 Region 2", region_keys, index=1, key="comp_r2")
+    with col_r3:
+        comp_workers = st.slider("Workers", 1, 8, 4, key="comp_workers")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    compare_clicked = st.button("▶ Compare Regions", type="primary", use_container_width=True, key="compare_btn")
+
+    if compare_clicked:
+        if region1 == region2:
+            st.warning("⚠️ Please select two different regions.")
+        else:
+            r1_file   = available_regions[region1]["file"]
+            r2_file   = available_regions[region2]["file"]
+            r1_result = r1_file.replace("_Data.csv", "_results.csv")
+            r2_result = r2_file.replace("_Data.csv", "_results.csv")
+            r1_soil   = r1_file.replace("_Data.csv", "_soil_report.json")
+            r2_soil   = r2_file.replace("_Data.csv", "_soil_report.json")
+
+            # Run MPI for both regions
+            with st.spinner(f"⚡ Running parallel analysis for both regions using {comp_workers} workers..."):
+                import concurrent.futures
+                def run_mpi(data_file, result_file):
+                    return subprocess.run(
+                        ["/opt/homebrew/bin/mpiexec", "-n", str(comp_workers),
+                         "/opt/anaconda3/bin/python3", "process.py", data_file, result_file],
+                        capture_output=True, text=True
+                    )
+                def run_soil(result_file, soil_file):
+                    return subprocess.run(
+                        ["/opt/homebrew/bin/mpiexec", "-n", str(comp_workers),
+                         "/opt/anaconda3/bin/python3", "soil_report.py", result_file, soil_file],
+                        capture_output=True, text=True
+                    )
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    f1 = executor.submit(run_mpi, r1_file, r1_result)
+                    f2 = executor.submit(run_mpi, r2_file, r2_result)
+                    f1.result(); f2.result()
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    s1 = executor.submit(run_soil, r1_result, r1_soil)
+                    s2 = executor.submit(run_soil, r2_result, r2_soil)
+                    s1.result(); s2.result()
+            st.success("✅ Comparison complete!")
+            st.rerun()
+
+    # Show comparison if both results exist
+    r1_file   = available_regions[region1]["file"]
+    r2_file   = available_regions[region2]["file"]
+    r1_result = r1_file.replace("_Data.csv", "_results.csv")
+    r2_result = r2_file.replace("_Data.csv", "_results.csv")
+    r1_soil   = r1_file.replace("_Data.csv", "_soil_report.json")
+    r2_soil   = r2_file.replace("_Data.csv", "_soil_report.json")
+
+    if os.path.exists(r1_result) and os.path.exists(r2_result) and os.path.exists(r1_soil) and os.path.exists(r2_soil):
+        df1 = pd.read_csv(r1_result)
+        df2 = pd.read_csv(r2_result)
+        with open(r1_soil) as f: soil1 = json.load(f)
+        with open(r2_soil) as f: soil2 = json.load(f)
+
+        # ── Comparison Header ─────────────────────────────────────────────────
+        st.markdown(f"""
+        <div style='background:linear-gradient(135deg,#0d1b2a,#1a3a5c);border-radius:16px;
+                    padding:24px 32px;margin-bottom:24px;color:white;text-align:center'>
+            <div style='font-size:20px;font-weight:900'>🔍 Region Comparison Report</div>
+            <div style='font-size:15px;margin-top:10px;opacity:0.9'>
+                <b>{region1}</b> &nbsp;⚔️&nbsp; <b>{region2}</b>
+            </div>
+            <div style='font-size:12px;opacity:0.6;margin-top:6px'>Processed using {comp_workers} MPI workers</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Side by Side Metrics ──────────────────────────────────────────────
+        def pct(df, col): return round(df[col].sum() / len(df) * 100, 1)
+
+        metrics = [
+            ("NDVI Average",       round(df1["NDVI"].mean(),3),      round(df2["NDVI"].mean(),3),      "🌱",  True),
+            ("Healthy %",          pct(df1,"Vegetation_Healthy"),     pct(df2,"Vegetation_Healthy"),     "🟢",  True),
+            ("Drought Risk %",     pct(df1,"Drought_Risk"),           pct(df2,"Drought_Risk"),           "🔴",  False),
+            ("Water Stress %",     pct(df1,"Water_Stress"),           pct(df2,"Water_Stress"),           "🟠",  False),
+            ("Nitrogen (kg/ha)",   soil1["nitrogen"]["value"],        soil2["nitrogen"]["value"],        "🌿",  True),
+            ("Phosphorus (kg/ha)", soil1["phosphorus"]["value"],      soil2["phosphorus"]["value"],      "🔶",  True),
+            ("Potassium (kg/ha)",  soil1["potassium"]["value"],       soil2["potassium"]["value"],       "🟡",  True),
+            ("Soil pH",            soil1["ph"]["value"],              soil2["ph"]["value"],              "🧪",  None),
+        ]
+
+        # Header row
+        h1, h2, h3 = st.columns([2, 1, 1])
+        h1.markdown(f"**Metric**")
+        h2.markdown(f"**{region1.split('(')[0].strip()}**")
+        h3.markdown(f"**{region2.split('(')[0].strip()}**")
+        st.markdown("---")
+
+        r1_score = 0
+        r2_score = 0
+
+        for label, v1, v2, icon, higher_better in metrics:
+            c1, c2, c3 = st.columns([2, 1, 1])
+            if higher_better is True:
+                win1 = v1 > v2
+                win2 = v2 > v1
+            elif higher_better is False:
+                win1 = v1 < v2
+                win2 = v2 < v1
+            else:
+                # pH — closer to 7 is better
+                win1 = abs(v1 - 7) < abs(v2 - 7)
+                win2 = abs(v2 - 7) < abs(v1 - 7)
+
+            if win1: r1_score += 1
+            if win2: r2_score += 1
+
+            badge1 = "🏆" if win1 else ""
+            badge2 = "🏆" if win2 else ""
+            color1 = "#27ae60" if win1 else "#e74c3c" if win2 else "#888"
+            color2 = "#27ae60" if win2 else "#e74c3c" if win1 else "#888"
+
+            c1.markdown(f"{icon} **{label}**")
+            c2.markdown(f"<span style='color:{color1};font-weight:700;font-size:16px'>{v1} {badge1}</span>", unsafe_allow_html=True)
+            c3.markdown(f"<span style='color:{color2};font-weight:700;font-size:16px'>{v2} {badge2}</span>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Winner Banner ─────────────────────────────────────────────────────
+        if r1_score > r2_score:
+            winner = region1.split('(')[0].strip()
+            loser  = region2.split('(')[0].strip()
+            win_color = "#27ae60"
+        elif r2_score > r1_score:
+            winner = region2.split('(')[0].strip()
+            loser  = region1.split('(')[0].strip()
+            win_color = "#27ae60"
+        else:
+            winner = None
+            win_color = "#3498db"
+
+        if winner:
+            st.markdown(f"""
+            <div style='background:{win_color}15;border:2px solid {win_color};border-radius:14px;
+                        padding:20px;text-align:center;margin-top:10px'>
+                <div style='font-size:32px'>🏆</div>
+                <div style='font-size:20px;font-weight:900;color:{win_color};margin-top:6px'>
+                    {winner} is Better for Farming
+                </div>
+                <div style='font-size:13px;color:#555;margin-top:8px'>
+                    Won {max(r1_score,r2_score)} out of {len(metrics)} categories
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style='background:#3498db15;border:2px solid #3498db;border-radius:14px;
+                        padding:20px;text-align:center;margin-top:10px'>
+                <div style='font-size:32px'>🤝</div>
+                <div style='font-size:20px;font-weight:900;color:#3498db;margin-top:6px'>Both Regions are Equal</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("👆 Select two regions and click **Compare Regions** to start analysis.")
 
 with tab1:
     # ── Dashboard Header ────────────────────────────────────────────────────────
