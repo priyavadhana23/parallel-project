@@ -244,10 +244,10 @@ st.divider()
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
+st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
 tab1, tab2, tab3 = st.tabs(["🌾 Agricultural Dashboard", "🧪 Soil Analysis Report", "🔍 Region Comparison"])
 
 with tab2:
-    st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
     SOIL_REPORT_FILE = RESULT_FILE.replace("_results.csv", "_soil_report.json")
     col_run1, col_run2 = st.columns([2, 3])
     with col_run1:
@@ -634,7 +634,6 @@ with tab3:
         st.info("👆 Select two regions and click **Compare Regions** to start analysis.")
 
 with tab1:
-    st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
     # ── Dashboard Header ────────────────────────────────────────────────────────
     st.markdown(f"""
     <div style='background:linear-gradient(135deg,#1e3a5f,#0d1b2a);border-radius:16px;padding:28px 32px;margin-bottom:24px;color:white'>
