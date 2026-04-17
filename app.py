@@ -89,8 +89,6 @@ def save_history(entry):
 # ── Page Header ───────────────────────────────────────────────────────────────
 st.markdown("# 🌾 Agricultural Risk Monitor")
 
-st.divider()
-
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🌍 Select Region")
@@ -238,10 +236,6 @@ if not os.path.exists(RESULT_FILE):
     st.stop()
 
 df = pd.read_csv(RESULT_FILE)
-
-
-st.divider()
-
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
