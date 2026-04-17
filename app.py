@@ -9,7 +9,7 @@ import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="Sat2Farm", layout="wide", page_icon="🌾")
+st.set_page_config(page_title="Soil Analytics", layout="wide", page_icon="🌾")
 
 HISTORY_FILE = "run_history.json"
 
@@ -69,7 +69,7 @@ def save_history(entry):
         json.dump(history, f, indent=2)
 
 # ── Page Header ───────────────────────────────────────────────────────────────
-st.markdown("# 🌾 Sat2Farm — Agricultural Risk Monitor")
+st.markdown("# 🌾 Agricultural Risk Monitor")
 st.markdown("**Satellite-powered parallel analysis** using MPI distributed computing.")
 st.divider()
 
@@ -224,6 +224,9 @@ st.divider()
 tab1, tab2 = st.tabs(["🌾 Agricultural Dashboard", "🧪 Soil Analysis Report"])
 
 with tab2:
+    from fpdf import FPDF
+    import io
+
     SOIL_REPORT_FILE = RESULT_FILE.replace("_results.csv", "_soil_report.json")
     col_run1, col_run2 = st.columns([2, 3])
     with col_run1:
@@ -252,12 +255,22 @@ with tab2:
         with open(SOIL_REPORT_FILE) as f:
             report = json.load(f)
 
-        # Report Header
+        params = [
+            ("nitrogen",   "Nitrogen",            "N",   "kg/ha"),
+            ("phosphorus", "Phosphorus",          "P",   "kg/ha"),
+            ("potassium",  "Potassium",           "K",   "kg/ha"),
+            ("soc",        "Soil Organic Carbon", "SOC", "%"),
+            ("ph",         "Soil pH",             "pH",  ""),
+        ]
+
+        icons = {"nitrogen": "🌿", "phosphorus": "🔶", "potassium": "🟡", "soc": "🪨", "ph": "🧪"}
+
+        # ── Report Header ─────────────────────────────────────────────────────
         st.markdown(f"""
         <div style='background:linear-gradient(135deg,#0d1b2a,#1a3a5c);border-radius:16px;padding:28px 32px;margin-bottom:24px;color:white'>
             <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px'>
                 <div>
-                    <div style='font-size:22px;font-weight:900;letter-spacing:1px'>🌍 Sat2Farm — Soil Analysis Report</div>
+                    <div style='font-size:22px;font-weight:900;letter-spacing:1px'>🌍 Soil Analysis Report</div>
                     <div style='font-size:13px;opacity:0.7;margin-top:4px'>Satellite-derived soil intelligence · MPI parallel computing</div>
                 </div>
                 <div style='text-align:right'>
@@ -276,17 +289,10 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
 
-        # Soil Parameter Cards
-        params = [
-            ("nitrogen",   "🌿", "Nitrogen",            "N",   "kg/ha"),
-            ("phosphorus", "🔶", "Phosphorus",          "P",   "kg/ha"),
-            ("potassium",  "🟡", "Potassium",           "K",   "kg/ha"),
-            ("soc",        "🪨", "Soil Organic Carbon", "SOC", "%"),
-            ("ph",         "🧪", "Soil pH",             "pH",  ""),
-        ]
-
-        for key, icon, label, short, unit in params:
+        # ── Soil Parameter Cards ───────────────────────────────────────────────
+        for key, label, short, unit in params:
             p = report[key]
+            icon = icons[key]
             val_display = f"{p['value']} {unit}".strip()
             st.markdown(f"""
             <div style='background:white;border-radius:14px;padding:22px 28px;margin-bottom:16px;
@@ -306,13 +312,14 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
 
-        # Overview summary cards
+        # ── Overview Cards ────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="section-heading">📊 Soil Health Overview</div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         overview_cols = st.columns(5)
-        for col, (key, icon, label, short, unit) in zip(overview_cols, params):
+        for col, (key, label, short, unit) in zip(overview_cols, params):
             p = report[key]
+            icon = icons[key]
             with col:
                 st.markdown(f"""
                 <div style='background:white;border-radius:12px;padding:18px 12px;text-align:center;
@@ -326,7 +333,7 @@ with tab2:
                 </div>
                 """, unsafe_allow_html=True)
 
-        # Disclaimer
+        # ── Disclaimer ────────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("""
         <div style='background:#f8f9fa;border-radius:10px;padding:16px 20px;border:1px solid #dee2e6'>
@@ -338,6 +345,104 @@ with tab2:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # ── Download Buttons ──────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">⬇️ Download Report</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        dl1, dl2 = st.columns(2)
+
+        # CSV download
+        with dl1:
+            import csv, io as _io
+            csv_buf = _io.StringIO()
+            writer = csv.writer(csv_buf)
+            writer.writerow(["Parameter", "Short", "Value", "Unit", "Status", "Ideal Range", "Remarks"])
+            for key, label, short, unit in params:
+                p = report[key]
+                writer.writerow([label, short, p["value"], unit, p["status"], p["ideal"], p["remark"]])
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv_buf.getvalue(),
+                file_name=f"soil_report_{selected_region.replace(' ', '_').replace('/', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        # PDF download
+        with dl2:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_margins(15, 15, 15)
+
+            # Title
+            pdf.set_fill_color(13, 27, 42)
+            pdf.rect(0, 0, 210, 35, 'F')
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 18)
+            pdf.set_xy(15, 10)
+            pdf.cell(0, 10, "Soil Analysis Report", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_xy(15, 22)
+            pdf.cell(0, 6, "Satellite-derived soil intelligence | MPI parallel computing", ln=True)
+
+            # Meta info
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_xy(15, 42)
+            pdf.set_font("Helvetica", "B", 10)
+            region_clean = selected_region.encode('latin-1', 'replace').decode('latin-1')
+            pdf.cell(0, 6, f"Region: {region_clean}", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.cell(0, 6, f"Date: {datetime.now().strftime('%d %b %Y')}    Pixels: {report['total_pixels']:,}    Workers: {report['workers']}    Time: {report['processing_time']}s", ln=True)
+            pdf.ln(4)
+
+            # Table header
+            pdf.set_fill_color(26, 58, 92)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 10)
+            col_widths = [45, 20, 25, 25, 70]
+            headers = ["Parameter", "Value", "Status", "Ideal Range", "Remarks"]
+            for w, h in zip(col_widths, headers):
+                pdf.cell(w, 8, h, border=1, fill=True)
+            pdf.ln()
+
+            # Table rows
+            status_colors = {"Low": (231,76,60), "High": (243,156,18), "Ideal": (39,174,96),
+                             "Acidic": (231,76,60), "Slightly Acidic": (243,156,18),
+                             "Neutral": (39,174,96), "Slightly Alkaline": (243,156,18), "Alkaline": (231,76,60)}
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Helvetica", "", 9)
+            for i, (key, label, short, unit) in enumerate(params):
+                p = report[key]
+                fill = i % 2 == 0
+                pdf.set_fill_color(245, 247, 250) if fill else pdf.set_fill_color(255, 255, 255)
+                val_str = f"{p['value']} {unit}".strip()
+                ideal_str = f"{p['ideal']} {unit}".strip()
+                remark_short = p["remark"][:65] + "..." if len(p["remark"]) > 65 else p["remark"]
+                row_vals = [label, val_str, p["status"], ideal_str, remark_short]
+                for w, v in zip(col_widths, row_vals):
+                    pdf.cell(w, 8, v, border=1, fill=fill)
+                pdf.ln()
+
+            # Disclaimer
+            pdf.ln(8)
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(0, 6, "DISCLAIMER", ln=True)
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(100, 100, 100)
+            pdf.multi_cell(0, 5, "This report is generated from satellite imagery (Sentinel-2, 10m resolution) using MPI parallel computing. "
+                           "Soil parameters are estimated using spectral index correlations and may differ from laboratory tests. "
+                           "Values are region-level averages. Not to be used as sole basis for agricultural decisions.")
+
+            pdf_bytes = pdf.output()
+            st.download_button(
+                label="📄 Download PDF",
+                data=bytes(pdf_bytes),
+                file_name=f"soil_report_{selected_region.replace(' ', '_').replace('/', '_')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
 with tab1:
 
