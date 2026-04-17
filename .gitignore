@@ -8,4 +8,6 @@ run_history.json
 __pycache__/
 *.pyc
 *.pyo
+# Environment and results
 .env
+*_soil_report.json

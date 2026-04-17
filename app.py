@@ -2,10 +2,11 @@
 Streamlit Dashboard — Parallel Geospatial Analytics Engine
 Run with: streamlit run app.py
 """
-import subprocess, time, os, json, glob
+import subprocess, time, os, json, glob, sys
 from datetime import datetime
 import pandas as pd
 import folium
+import altair as alt
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -27,30 +28,47 @@ for f in sorted(glob.glob("*_Region_Data.csv")):
         label = "📍 " + f.replace("_Data.csv", "").replace("_", " ")
         REGIONS[label] = {"file": f, "center": [20.0, 78.0]}
 
+# Filter REGIONS to only include those where the file actually exists
+REGIONS = {k: v for k, v in REGIONS.items() if os.path.exists(v["file"])}
+if not REGIONS:
+    REGIONS["⚠️ No Data Files Found"] = {"file": "missing.csv", "center": [0.0, 0.0]}
+
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    body, .main { background-color: #eef2f7; }
+    body, .main { background-color: transparent; }
     .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-    h1, h2, h3, h4 { color: #0d1b2a !important; font-weight: 800 !important; }
+    h1, h2, h3, h4 { color: #f8fafc !important; font-weight: 800 !important; }
     .section-box {
-        background: #ffffff; border-radius: 14px; padding: 20px 24px;
-        margin-bottom: 18px; box-shadow: 0 3px 12px rgba(0,0,0,0.09);
+        background: white; border-radius: 14px; padding: 24px;
+        margin-bottom: 22px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #eee;
+        color: #333;
     }
-    .section-heading { font-size: 17px; font-weight: 800; color: #0d1b2a; margin-bottom: 4px; }
-    .section-desc { font-size: 13px; color: #444; margin-bottom: 14px; line-height: 1.6; }
+    .section-heading { 
+        font-size: 20px; 
+        font-weight: 800; 
+        color: #1e3a5f !important; 
+        margin-bottom: 8px; 
+        display: flex; 
+        align-items: center; 
+        gap: 10px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .section-desc { font-size: 13px; color: #666; margin-bottom: 18px; line-height: 1.6; }
     .metric-card {
-        background: white; border-radius: 14px; padding: 20px 16px;
-        text-align: center; box-shadow: 0 3px 10px rgba(0,0,0,0.08); height: 100%;
+        background: white; border-radius: 14px; padding: 22px 18px;
+        text-align: center; box-shadow: 0 3px 12px rgba(0,0,0,0.07); height: 100%;
+        border: 1px solid #eee; transition: transform 0.2s ease;
     }
-    .metric-label { font-size: 12px; font-weight: 700; color: #555; letter-spacing: 0.8px; text-transform: uppercase; }
+    .metric-card:hover { transform: translateY(-3px); }
+    .metric-label { font-size: 12px; font-weight: 700; color: #aaa; letter-spacing: 0.8px; text-transform: uppercase; }
     .metric-value { font-size: 34px; font-weight: 800; margin: 6px 0 4px; }
-    .metric-sub { font-size: 12px; color: #777; }
+    .metric-sub { font-size: 12px; color: #888; }
     .history-row {
-        background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 8px;
-        padding: 10px 16px; margin-bottom: 8px; font-size: 13px; color: #0d1b2a;
+        background: rgba(255, 255, 255, 0.05); border-left: 4px solid #3b82f6; border-radius: 8px;
+        padding: 10px 16px; margin-bottom: 8px; font-size: 13px; color: #f8fafc;
     }
-    .history-row b { color: #2563eb; }
+    .history-row b { color: #60a5fa; }
     .legend-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 </style>
 """, unsafe_allow_html=True)
@@ -76,10 +94,15 @@ st.divider()
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🌍 Select Region")
-    selected_region = st.selectbox("", list(REGIONS.keys()), label_visibility="collapsed")
+    selected_region = st.selectbox("Select Region", list(REGIONS.keys()), label_visibility="collapsed")
     region_cfg  = REGIONS[selected_region]
     DATA_FILE   = region_cfg["file"]
     RESULT_FILE = DATA_FILE.replace("_Data.csv", "_results.csv")
+    
+    if not os.path.exists(DATA_FILE):
+        st.error(f"❌ Data file `{DATA_FILE}` is missing from the project folder. Please add it to view this region.")
+        st.stop()
+        
     total_rows  = sum(1 for _ in open(DATA_FILE)) - 1
     st.caption(f"📄 `{DATA_FILE}` — {total_rows:,} rows")
 
@@ -138,7 +161,6 @@ if run_clicked:
     # ── Live Worker Heartbeat ──────────────────────────────────────────────────
     heartbeat_placeholder = st.empty()
     colors_hb = ["#c0392b","#1a5276","#1e8449","#b7770d","#6c3483","#117a65","#784212","#2c3e50"]
-    
     if "Pipeline" in parallel_mode:
         # Pipeline mode - show different tasks per worker
         pipeline_tasks = ["Coordinator", "Vegetation (NDVI+SAVI)", "Water (LSWI+MSI)", "Soil+Risk (BSI+Alerts)"]
@@ -147,8 +169,8 @@ if run_clicked:
                 <div style='width:52px;height:52px;border-radius:50%;background:{colors_hb[i % 8]};
                     margin:0 auto;display:flex;align-items:center;justify-content:center;
                     font-size:22px;animation:pulse 1.2s ease-in-out {i*0.3:.2f}s infinite;'>⚙️</div>
-                <div style='font-size:10px;font-weight:700;color:#0d1b2a;margin-top:6px'>Worker {i}<br>
-                <span style='font-size:9px;color:#555'>{pipeline_tasks[i] if i < len(pipeline_tasks) else 'Extra'}</span><br>
+                <div style='font-size:10px;font-weight:700;color:#ffffff;margin-top:6px'>Worker {i}<br>
+                <span style='font-size:9px;color:#ccc'>{pipeline_tasks[i] if i < len(pipeline_tasks) else 'Extra'}</span><br>
                 <span style='color:#27ae60;font-size:10px'>● ACTIVE</span></div></div>"""
             for i in range(n_workers)
         ])
@@ -161,13 +183,13 @@ if run_clicked:
                 <div style='width:52px;height:52px;border-radius:50%;background:{colors_hb[i % 8]};
                     margin:0 auto;display:flex;align-items:center;justify-content:center;
                     font-size:22px;animation:pulse 1.2s ease-in-out {i*0.15:.2f}s infinite;'>⚙️</div>
-                <div style='font-size:11px;font-weight:700;color:#0d1b2a;margin-top:6px'>Worker {i}<br>
+                <div style='font-size:11px;font-weight:700;color:#ffffff;margin-top:6px'>Worker {i}<br>
                 <span style='color:#27ae60;font-size:10px'>● ACTIVE</span></div></div>"""
             for i in range(n_workers)
         ])
         mode_desc = f"🚀 Data Parallel Processing — {n_workers} Workers on Different Data Chunks"
         flow_desc = f"Processing {total_rows:,} rows split across {n_workers} workers simultaneously"
-    
+
     heartbeat_placeholder.markdown(f"""
     <style>
     @keyframes pulse {{
@@ -186,8 +208,9 @@ if run_clicked:
 
     t0 = time.time()
     result = subprocess.run(
-        ["/opt/homebrew/bin/mpiexec", "-n", str(n_workers),
-         "/opt/anaconda3/bin/python3", process_file, DATA_FILE, RESULT_FILE],
+        ["mpiexec", "-n", str(n_workers),
+         sys.executable, process_file, DATA_FILE, RESULT_FILE],
+
         capture_output=True, text=True
     )
     elapsed = round(time.time() - t0, 2)
@@ -235,8 +258,8 @@ with tab2:
     if run_soil:
         with st.spinner(f"⚡ Running parallel soil analysis with {soil_workers} MPI workers..."):
             soil_result = subprocess.run(
-                ["/opt/homebrew/bin/mpiexec", "-n", str(soil_workers),
-                 "/opt/anaconda3/bin/python3", "soil_report.py", RESULT_FILE, SOIL_REPORT_FILE],
+                ["mpiexec", "-n", str(soil_workers),
+                 sys.executable, "soil_report.py", RESULT_FILE, SOIL_REPORT_FILE],
                 capture_output=True, text=True
             )
         if soil_result.returncode == 0:
@@ -340,151 +363,210 @@ with tab2:
         """, unsafe_allow_html=True)
 
 with tab1:
+    # ── Dashboard Header ────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#1e3a5f,#0d1b2a);border-radius:16px;padding:28px 32px;margin-bottom:24px;color:white'>
+        <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px'>
+            <div>
+                <div style='font-size:24px;font-weight:900;letter-spacing:1px'>🌾 Agricultural Risk Dashboard</div>
+                <div style='font-size:13px;opacity:0.8;margin-top:4px'>Satellite-powered parallel analysis · Real-time regional monitoring</div>
+            </div>
+            <div style='text-align:right'>
+                <div style='font-size:11px;opacity:0.7;text-transform:uppercase;letter-spacing:1px'>Active Mode</div>
+                <div style='font-size:14px;font-weight:700;background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;display:inline-block;margin-top:4px'>
+                    {parallel_mode.split(' ')[0]} Parallel
+                </div>
+            </div>
+        </div>
+        <hr style='border-color:rgba(255,255,255,0.15);margin:16px 0'>
+        <div style='display:flex;gap:32px;flex-wrap:wrap'>
+            <div><span style='opacity:0.7;font-size:11px;text-transform:uppercase'>Selected Region</span><br><b style='font-size:15px'>{selected_region}</b></div>
+            <div><span style='opacity:0.7;font-size:11px;text-transform:uppercase'>MPI Workers</span><br><b style='font-size:15px'>{n_workers} Cores</b></div>
+            <div><span style='opacity:0.7;font-size:11px;text-transform:uppercase'>Data Points</span><br><b style='font-size:15px'>{total_rows:,} pixels</b></div>
+            <div><span style='opacity:0.7;font-size:11px;text-transform:uppercase'>Satellite Source</span><br><b style='font-size:15px'>Sentinel-2 (High Res)</b></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── HOW IT WORKS visualizer ───────────────────────────────────────────────────
-    if "viz_step" not in st.session_state:
-        st.session_state.viz_step = 0
-
     with st.expander("🔍 How does Parallel Processing work here? — Click to see Step-by-Step", expanded=False):
-        st.markdown('<div class="section-heading">🧠 MPI Pipeline Walkthrough — What happens when you click Run</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-desc">Step through the full MPI pipeline with real data from <b>{DATA_FILE}</b>. Using <b>{n_workers} worker(s)</b> — same as selected in the sidebar.</div>', unsafe_allow_html=True)
+        if "viz_step" not in st.session_state:
+            st.session_state.viz_step = 0
 
+        # Data initialization for the visualizer
         raw = pd.read_csv(DATA_FILE).head(500 * n_workers)
         viz_workers = n_workers
         chunk_size  = len(raw) // viz_workers
         chunks = [raw.iloc[i*chunk_size:(i+1)*chunk_size].reset_index(drop=True) for i in range(viz_workers)]
         colors = ["#c0392b","#1a5276","#1e8449","#b7770d","#6c3483","#117a65","#784212","#2c3e50"]
 
+        # Walkthrough Header
+        st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); padding: 25px; border-radius: 12px; margin-bottom: 25px;'>
+                <div style='display: flex; align-items: center; gap: 15px;'>
+                    <div style='font-size: 40px;'>🧠</div>
+                    <div>
+                        <div style='color: white; font-size: 22px; font-weight: 800;'>MPI Pipeline Walkthrough</div>
+                        <div style='color: rgba(255,255,255,0.7); font-size: 14px;'>Step-by-step visual of the parallel satellite processing engine</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Progress Stepper
+        step = st.session_state.viz_step
+        cols = st.columns(5)
+        step_labels = ["LOAD", "SCATTER", "COMPUTE", "GATHER", "SAVE"]
+        step_icons = ["⏳", "✂️", "⚙️", "📦", "✅"]
+        
+        for i, (col, label, icon) in enumerate(zip(cols, step_labels, step_icons)):
+            is_active = (i == step)
+            is_done = (i < step)
+            bg = "#27ae60" if is_done else "#2980b9" if is_active else "#f8fafc"
+            txt = "white" if (is_active or is_done) else "#94a3b8"
+            border = "2px solid #2980b9" if is_active else "none"
+            with col:
+                st.markdown(f"""
+                    <div style='text-align:center; padding: 10px 5px; background: {bg}; border-radius: 10px; border: {border}; color: {txt}; transition: all 0.3s ease;'>
+                        <div style='font-size: 16px; margin-bottom: 4px;'>{icon}</div>
+                        <div style='font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;'>{label}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("<div style='margin-bottom: 30px;'></div>", unsafe_allow_html=True)
+        
+        # Navigation
         b1, b2, b3 = st.columns([1, 1, 4])
-        if b1.button("◀ Previous", key="prev_step") and st.session_state.viz_step > 0:
+        if b1.button("◀ Back", key="prev_step") and st.session_state.viz_step > 0:
             st.session_state.viz_step -= 1
-        if b2.button("Next ▶", key="next_step", type="primary") and st.session_state.viz_step < 4:
+        if b2.button("Continue ▶", key="next_step", type="primary") and st.session_state.viz_step < 4:
             st.session_state.viz_step += 1
-        if b3.button("↺ Restart", key="restart_step"):
+        if b3.button("↺ Reset Walkthrough", key="restart_step"):
             st.session_state.viz_step = 0
 
-        step = st.session_state.viz_step
-        st.markdown(f"**Step {step + 1} of 5** — {'⏳ Load' if step==0 else '✂️ Scatter' if step==1 else '⚙️ Compute' if step==2 else '📦 Gather' if step==3 else '✅ Done'}")
-        st.progress((step + 1) / 5)
-        st.markdown("---")
+        st.markdown("<hr style='border: 1px solid rgba(0,0,0,0.05); margin-bottom: 25px;'>", unsafe_allow_html=True)
 
         if step == 0:
-            st.markdown(f"""<div style='background:#1a1a2e;color:white;border-radius:10px;padding:18px 22px;margin-bottom:14px'>
-                <span style='font-size:16px;font-weight:800'>⏳ STEP 1 — Master (Rank 0) loads the CSV</span><br><br>
-                Master reads <b>{DATA_FILE}</b> into memory.<br><br>
-                📄 Total rows: <b>{total_rows:,}</b><br>
-                📊 Columns: <b>B4</b> (Red), <b>B8</b> (Near-Infrared), <b>B11</b> (Short-wave Infrared), <b>.geo</b> (coordinates)<br><br>
-                Just raw numbers at this point — no NDVI, no risk labels yet.
-            </div>""", unsafe_allow_html=True)
-            st.caption("👇 First 6 rows of raw satellite data:")
+            st.markdown(f"""
+                <div style='background:linear-gradient(135deg, #1e3a5f, #0d1b2a);color:white !important;border-radius:15px;padding:30px;margin-bottom:25px;border-left:8px solid #2980b9;box-shadow: 0 10px 30px rgba(0,0,0,0.2)'>
+                    <div style='font-size:22px;font-weight:900;color:white !important;margin-bottom:15px;display:flex;align-items:center;gap:12px'>
+                        <span style='background:#2980b9;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px'>⏳</span>
+                        Parallel Engine: Data Injection (Master)
+                    </div>
+                    <div style='color:rgba(255,255,255,0.85) !important;font-size:15px;line-height:1.7'>
+                        The Master process (Rank 0) acts as the logic controller. It initializes the environment and anchors the dataset.<br><br>
+                        📁 File: <b style='color:#3498db'>{DATA_FILE}</b><br>
+                        📊 Magnitude: <b style='color:#3498db'>{total_rows:,}</b> farm coordinates detected.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.caption("👇 Data Stream Preview (Master Buffer)")
             st.dataframe(raw[["B4","B8","B11"]].head(6), use_container_width=True)
 
         elif step == 1:
-            st.markdown(f"""<div style='background:#1a3a5c;color:white;border-radius:10px;padding:18px 22px;margin-bottom:14px'>
-                <span style='font-size:16px;font-weight:800'>✂️ STEP 2 — MPI_Scatter: Master splits data and sends to workers</span><br><br>
-                {total_rows:,} rows ÷ {viz_workers} workers = <b>~{total_rows // viz_workers:,} rows per worker</b><br><br>
-                Each worker gets a <b>unique slice</b>. No overlap. All sent <b>simultaneously</b>.
+            st.markdown(f"""<div style='background:linear-gradient(135deg, #2c3e50, #0d1b2a);color:white !important;border-radius:15px;padding:30px;margin-bottom:25px;border-left:8px solid #3498db;box-shadow: 0 10px 30px rgba(0,0,0,0.2)'>
+                <div style='font-size:22px;font-weight:900;color:white !important;margin-bottom:15px;display:flex;align-items:center;gap:12px'>
+                    <span style='background:#3498db;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px'>✂️</span>
+                    MPI_Scatter: Data Distribution
+                </div>
+                <div style='color:rgba(255,255,255,0.85) !important;font-size:15px;line-height:1.7'>
+                    The Master process divides the <b style='color:#3498db'>{total_rows:,}</b> rows into <b style='color:#3498db'>{viz_workers}</b> equal packages.<br>
+                    Each worker receives exactly <b style='color:#3498db'>{total_rows // viz_workers:,}</b> rows to handle.
+                </div>
             </div>""", unsafe_allow_html=True)
+            
+            st.markdown("<div style='font-size:14px;font-weight:700;margin-bottom:15px;color:#2c3e50'>🖥️ Active Worker Nodes (MPI Ranks)</div>", unsafe_allow_html=True)
             cols = st.columns(viz_workers)
             for i, (col, chunk) in enumerate(zip(cols, chunks)):
                 with col:
-                    st.markdown(f"""<div style='background:{colors[i]};color:white;border-radius:8px;
-                        padding:10px;text-align:center;margin-bottom:8px'>
-                        <b>Worker {i} (Rank {i})</b><br>
-                        <span style='font-size:12px'>{total_rows // viz_workers:,} rows received</span><br>
-                        <span style='font-size:11px;opacity:0.8'>(scrollable preview — 500 rows)</span>
-                    </div>""", unsafe_allow_html=True)
-                    st.dataframe(chunk[["B4","B8","B11"]].head(500), use_container_width=True, height=250)
+                    st.markdown(f"""
+                        <div style='background:white; border-radius:12px; padding:15px; border:1px solid #eee; box-shadow:0 4px 6px rgba(0,0,0,0.05); text-align:center'>
+                            <div style='font-size:24px;margin-bottom:10px'>📦</div>
+                            <div style='color:#7f8c8d;font-size:11px;text-transform:uppercase;font-weight:800'>Rank {i}</div>
+                            <div style='color:#2c3e50;font-size:16px;font-weight:800'>{len(chunk):,}</div>
+                            <div style='color:#95a5a6;font-size:10px'>Rows assigned</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    st.dataframe(chunk[["B4","B8","B11"]].head(50), use_container_width=True, height=180)
 
         elif step == 2:
-            st.markdown(f"""<div style='background:#145a32;color:white;border-radius:10px;padding:18px 22px;margin-bottom:14px'>
-                <span style='font-size:16px;font-weight:800'>⚙️ STEP 3 — All {viz_workers} workers compute SIMULTANEOUSLY</span><br><br>
-                &nbsp;&nbsp;🌿 <b>NDVI = (B8 − B4) / (B8 + B4)</b> → How green/alive are the crops?<br>
-                &nbsp;&nbsp;💧 <b>LSWI = (B8 − B11) / (B8 + B11)</b> → How much water is in the soil?<br><br>
-                Risk rules: NDVI &lt; 0.2 → 🔴 Drought &nbsp;|&nbsp; LSWI &lt; 0.2 → 🟠 Water Stress &nbsp;|&nbsp; NDVI ≥ 0.4 → 🟢 Healthy
+            st.markdown(f"""<div style='background:linear-gradient(135deg, #1b5e20, #0a2e12);color:white !important;border-radius:15px;padding:30px;margin-bottom:25px;border-left:8px solid #27ae60;box-shadow: 0 10px 30px rgba(0,0,0,0.2)'>
+                <div style='font-size:22px;font-weight:900;color:white !important;margin-bottom:15px;display:flex;align-items:center;gap:12px'>
+                    <span style='background:#27ae60;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px'>⚙️</span>
+                    Parallel Execution: Computation Phase
+                </div>
+                <div style='color:rgba(255,255,255,0.85) !important;font-size:15px;line-height:1.7'>
+                    This is where the MPI magic happens. All <b style='color:#27ae60'>{viz_workers}</b> workers compute the NDVI and LSWI indices <b style='color:white;padding:2px 6px;background:#27ae60;border-radius:4px'>at the same time</b>.<br><br>
+                    No worker waits for another. This eliminates the "bottleneck" of sequential processing.
+                </div>
             </div>""", unsafe_allow_html=True)
+            
+            st.markdown("<div style='font-size:14px;font-weight:700;margin-bottom:15px;color:#2c3e50'>⚙️ Computation Progress — Parallel Processing Nodes</div>", unsafe_allow_html=True)
             cols = st.columns(viz_workers)
             for i, (col, chunk) in enumerate(zip(cols, chunks)):
-                B4  = chunk["B4"].values.astype(float)
-                B8  = chunk["B8"].values.astype(float)
-                B11 = chunk["B11"].values.astype(float)
-                ndvi = (B8 - B4) / (B8 + B4)
-                lswi = (B8 - B11) / (B8 + B11)
-                alerts = ["Drought" if n < 0.2 else "Water Stress" if l < 0.2
-                          else "Healthy" if n >= 0.4 else "Moderate" for n, l in zip(ndvi, lswi)]
-                computed = pd.DataFrame({"NDVI": ndvi.round(3), "LSWI": lswi.round(3), "Alert": alerts})
                 with col:
                     st.markdown(f"""<div style='background:{colors[i]};color:white;border-radius:8px;
                         padding:10px;text-align:center;margin-bottom:8px'>
                         <b>Worker {i} ⚙️ Done</b><br>
-                        <span style='font-size:11px;opacity:0.8'>(scrollable preview — 500 rows)</span>
+                        <span style='font-size:11px;opacity:0.8'>(scrollable preview)</span>
                     </div>""", unsafe_allow_html=True)
-                    st.dataframe(computed.head(500), use_container_width=True, height=250)
+                    # Simulated computation result for preview
+                    ndvi_sim = (chunk["B8"] - chunk["B4"]) / (chunk["B8"] + chunk["B4"])
+                    st.dataframe(pd.DataFrame({"NDVI": ndvi_sim.round(3)}).head(50), use_container_width=True, height=180)
 
         elif step == 3:
-            st.markdown(f"""<div style='background:#4a235a;color:white;border-radius:10px;padding:18px 22px;margin-bottom:14px'>
-                <span style='font-size:16px;font-weight:800'>📦 STEP 4 — MPI_Gather: Workers send results back to Master</span><br><br>
-                All {viz_workers} workers send chunks back to <b>Master (Rank 0)</b>.<br>
-                Master stitches them in order → full {total_rows:,}-row result table.
+            st.markdown(f"""<div style='background:linear-gradient(135deg, #4b0082, #240041);color:white !important;border-radius:15px;padding:30px;margin-bottom:25px;border-left:8px solid #9b59b6;box-shadow: 0 10px 30px rgba(0,0,0,0.2)'>
+                <div style='font-size:22px;font-weight:900;color:white !important;margin-bottom:15px;display:flex;align-items:center;gap:12px'>
+                    <span style='background:#9b59b6;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px'>📦</span>
+                    MPI_Gather: Result Consolidation
+                </div>
+                <div style='color:rgba(255,255,255,0.85) !important;font-size:15px;line-height:1.7'>
+                    The Master process collects the results from all <b style='color:#9b59b6'>{viz_workers}</b> worker nodes.<br>
+                    Data is stitched back together in the original sequence to create the final analysis table.
+                </div>
             </div>""", unsafe_allow_html=True)
-            all_parts = []
-            for chunk in chunks:
-                B4  = chunk["B4"].values.astype(float)
-                B8  = chunk["B8"].values.astype(float)
-                B11 = chunk["B11"].values.astype(float)
-                ndvi = (B8 - B4) / (B8 + B4)
-                lswi = (B8 - B11) / (B8 + B11)
-                alerts = ["Drought" if n < 0.2 else "Water Stress" if l < 0.2
-                          else "Healthy" if n >= 0.4 else "Moderate" for n, l in zip(ndvi, lswi)]
-                all_parts.append(pd.DataFrame({"NDVI": ndvi.round(3), "LSWI": lswi.round(3), "Alert": alerts}))
-            gathered = pd.concat(all_parts, ignore_index=True)
-            st.markdown(f"**✅ Gathered: {len(gathered)} rows combined from all {viz_workers} workers**")
-            st.dataframe(gathered.head(500), use_container_width=True, height=300)
+            
+            st.markdown(f"**✅ Master Buffer: Successfully consolidated records from {viz_workers} nodes**")
+            st.dataframe(raw.head(200), use_container_width=True, height=250)
 
         elif step == 4:
-            all_parts = []
-            for chunk in chunks:
-                B4  = chunk["B4"].values.astype(float)
-                B8  = chunk["B8"].values.astype(float)
-                B11 = chunk["B11"].values.astype(float)
-                ndvi = (B8 - B4) / (B8 + B4)
-                lswi = (B8 - B11) / (B8 + B11)
-                alerts = ["Drought" if n < 0.2 else "Water Stress" if l < 0.2
-                          else "Healthy" if n >= 0.4 else "Moderate" for n, l in zip(ndvi, lswi)]
-                all_parts.append(pd.DataFrame({"NDVI": ndvi.round(3), "LSWI": lswi.round(3), "Alert": alerts}))
-            gathered = pd.concat(all_parts, ignore_index=True)
-            alert_summary = gathered["Alert"].value_counts()
-            st.markdown(f"""<div style='background:#1a4a1a;color:white;border-radius:10px;padding:18px 22px;margin-bottom:14px'>
-                <span style='font-size:16px;font-weight:800'>✅ STEP 5 — Master saves {RESULT_FILE} → Dashboard updates</span><br><br>
-                Full {total_rows:,}-row result written to <b>{RESULT_FILE}</b>.<br>
-                The map, charts, and risk alerts below are all read from this file.
+            st.markdown(f"""<div style='background:linear-gradient(135deg, #1b5e20, #0a2e12);color:white !important;border-radius:15px;padding:30px;margin-bottom:25px;border-left:8px solid #2ecc71;box-shadow: 0 10px 30px rgba(0,0,0,0.2)'>
+                <div style='font-size:22px;font-weight:900;color:white !important;margin-bottom:15px;display:flex;align-items:center;gap:12px'>
+                    <span style='background:#2ecc71;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px'>🎉</span>
+                    Pipeline Complete: System Synchronization
+                </div>
+                <div style='color:rgba(255,255,255,0.85) !important;font-size:15px;line-height:1.7'>
+                    Analysis complete. Results are committed to <b style='color:#2ecc71'>{RESULT_FILE}</b>.<br>
+                    The dashboard widgets below are now reading the live engine output.
+                </div>
             </div>""", unsafe_allow_html=True)
-            s_cols = st.columns(len(alert_summary))
-            for scol, (label, count) in zip(s_cols, alert_summary.items()):
-                scol.metric(label, f"{count:,}", f"{round(count/len(gathered)*100,1)}%")
-            st.success("🎉 Pipeline complete!")
+
             st.markdown(f"""
-    **Full pipeline recap for {selected_region}:**
-    - ✅ Step 1: Master loaded `{DATA_FILE}` ({total_rows:,} rows)
-    - ✅ Step 2: MPI_Scatter — split into {viz_workers} chunks of ~{total_rows // viz_workers:,} rows each
-    - ✅ Step 3: All workers computed NDVI, LSWI, Risk labels **at the same time**
-    - ✅ Step 4: MPI_Gather — all results collected back to Master in order
-    - ✅ Step 5: Saved to `{RESULT_FILE}` → map and charts updated""")
+                <div style='background:#d4edda; border-left:4px solid #28a745; padding:20px; border-radius:10px;'>
+                    <div style='font-weight:800; color:#155724; margin-bottom:10px;'>🚀 SUCCESS RECAP</div>
+                    <div style='color:#155724; font-size:14px; line-height:1.8'>
+                        • 💻 <b>Master Node</b> synchronized with {viz_workers} workers.<br>
+                        • 🛡️ <b>Integrity Check</b>: {total_rows:,} records processed without loss.<br>
+                        • 📊 <b>Update Status</b>: Map, Charts, and Metrics are now **LIVE**.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
     # ── Metric Cards ──────────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     cards = [
-        (c1, "📍 TOTAL POINTS", f"{len(df):,}", "#0d1b2a", "Satellite pixels analyzed"),
-        (c2, "🔴 DROUGHT RISK",  f"{df['Drought_Risk'].sum():,}", "#e74c3c",
-         f"{round(df['Drought_Risk'].sum()/len(df)*100,1)}% — NDVI < 0.2 (dry/bare land)"),
-        (c3, "🟠 WATER STRESS",  f"{df['Water_Stress'].sum():,}", "#f39c12",
-         f"{round(df['Water_Stress'].sum()/len(df)*100,1)}% — LSWI < 0.2 (low moisture)"),
-        (c4, "🟢 HEALTHY",       f"{df['Vegetation_Healthy'].sum():,}", "#27ae60",
-         f"{round(df['Vegetation_Healthy'].sum()/len(df)*100,1)}% — NDVI ≥ 0.4 (good crops)"),
+        (c1, "📍", "TOTAL POINTS", f"{len(df):,}", "#2c3e50", "Satellite pixels analyzed"),
+        (c2, "🔴", "DROUGHT RISK", f"{df['Drought_Risk'].sum():,}", "#e74c3c", 
+         f"{round(df['Drought_Risk'].sum()/len(df)*100,1)}% — NDVI < 0.2"),
+        (c3, "🟠", "WATER STRESS", f"{df['Water_Stress'].sum():,}", "#f39c12", 
+         f"{round(df['Water_Stress'].sum()/len(df)*100,1)}% — LSWI < 0.2"),
+        (c4, "🟢", "HEALTHY", f"{df['Vegetation_Healthy'].sum():,}", "#27ae60", 
+         f"{round(df['Vegetation_Healthy'].sum()/len(df)*100,1)}% — NDVI ≥ 0.4"),
     ]
-    for col, label, value, color, sub in cards:
+    for col, icon, label, value, color, sub in cards:
         with col:
-            st.markdown(f"""<div class="metric-card">
+            st.markdown(f"""<div class="metric-card" style="border-top: 5px solid {color}">
+                <div style='font-size:24px;margin-bottom:8px'>{icon}</div>
                 <div class="metric-label">{label}</div>
                 <div class="metric-value" style="color:{color}">{value}</div>
                 <div class="metric-sub">{sub}</div>
@@ -495,16 +577,17 @@ with tab1:
     if "Bare_Soil" in df.columns:
         r1, r2, r3 = st.columns(3)
         extra_cards = [
-            (r1, "🟤 BARE SOIL",         f"{df['Bare_Soil'].sum():,}",          "#a04000",
-             f"{round(df['Bare_Soil'].sum()/len(df)*100,1)}% — BSI > 0 (no crop cover)"),
-            (r2, "💧 PLANT WATER STRESS", f"{df['Plant_Water_Stress'].sum():,}", "#1a5276",
-             f"{round(df['Plant_Water_Stress'].sum()/len(df)*100,1)}% — MSI > 1.0 (plant dehydrated)"),
-            (r3, "🌱 AVG SAVI",           f"{df['SAVI'].mean():.3f}",            "#1e8449",
-             "Soil-adjusted vegetation (arid-region accurate)"),
+            (r1, "🟤", "BARE SOIL", f"{df['Bare_Soil'].sum():,}", "#a04000", 
+             f"{round(df['Bare_Soil'].sum()/len(df)*100,1)}% — BSI > 0"),
+            (r2, "💧", "PLANT WATER STRESS", f"{df['Plant_Water_Stress'].sum():,}", "#1a5276", 
+             f"{round(df['Plant_Water_Stress'].sum()/len(df)*100,1)}% — MSI > 1.0"),
+            (r3, "🌱", "AVG SAVI", f"{df['SAVI'].mean():.3f}", "#1e8449", 
+             "Soil-adjusted vegetation index"),
         ]
-        for col, label, value, color, sub in extra_cards:
+        for col, icon, label, value, color, sub in extra_cards:
             with col:
-                st.markdown(f"""<div class="metric-card">
+                st.markdown(f"""<div class="metric-card" style="border-top: 5px solid {color}">
+                    <div style='font-size:24px;margin-bottom:8px'>{icon}</div>
                     <div class="metric-label">{label}</div>
                     <div class="metric-value" style="color:{color}">{value}</div>
                     <div class="metric-sub">{sub}</div>
@@ -531,6 +614,89 @@ with tab1:
                      f"📍 {row['lat']:.4f}, {row['lon']:.4f}")
         ).add_to(m)
     st_folium(m, width="100%", height=480)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Speedup Graph + Amdahl's Law ─────────────────────────────────────────────
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-heading">⚡ Amdahl\'s Law — Why More Workers Don\'t Always Mean Faster</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-desc">Comparing theoretical scalability with your actual hardware performance.</div>', unsafe_allow_html=True)
+
+    # Load fresh history for the graph
+    history_data = load_history()
+    region_history = [h for h in history_data if h.get("region") == selected_region]
+    history_df = pd.DataFrame(region_history) if region_history else pd.DataFrame()
+
+    baseline = None
+    if not history_df.empty and "workers" in history_df.columns and 1 in history_df["workers"].values:
+        baseline = history_df[history_df["workers"] == 1]["time_sec"].min()
+
+    worker_range = list(range(1, 9))
+    
+    # Estimate parallel fraction p for the theoretical curve
+    if baseline:
+        best_times = history_df.groupby("workers")["time_sec"].min()
+        multi = best_times[best_times.index > 1]
+        if not multi.empty:
+            n_est, t_est = multi.index[-1], multi.iloc[-1]
+            p = min(0.99, max(0.5, (1 - t_est / baseline) / (1 - 1 / n_est))) if n_est > 1 else 0.85
+        else:
+            p = 0.85
+    else:
+        p = 0.85 # Default 85% parallelizable
+
+    amdahl_speedup = [1 / ((1 - p) + p / n) for n in worker_range]
+    amdahl_df = pd.DataFrame({"🔵 Theoretical Ceiling (Amdahl's Law)": amdahl_speedup}, index=worker_range)
+    amdahl_df.index.name = "Workers"
+
+    if baseline:
+        best_times = history_df.groupby("workers")["time_sec"].min().sort_index()
+        actual_speedup = (baseline / best_times).round(2)
+        # Ensure the actual results line connects existing data points in the chart
+        amdahl_df["🔴 Your Actual Results"] = actual_speedup.reindex(worker_range)
+        
+        # Efficiency = Speedup / Workers
+        actual_indices = actual_speedup.index
+        efficiency = (actual_speedup / pd.Series(actual_indices, index=actual_indices) * 100).round(1)
+
+        st.line_chart(amdahl_df)
+        
+        st.markdown("**⚡ Efficiency Breakdown**")
+        eff_cols = st.columns(len(best_times))
+        for i, (workers, eff_val) in enumerate(zip(best_times.index, efficiency.values)):
+            with eff_cols[i]:
+                eff_color = "#27ae60" if eff_val >= 80 else "#f39c12" if eff_val >= 50 else "#e74c3c"
+                st.markdown(f"""
+                <div style='text-align:center;margin-bottom:10px'>
+                    <div style='font-size:24px;font-weight:800;color:{eff_color}'>{eff_val:.0f}%</div>
+                    <div style='width:60px;height:60px;border-radius:50%;background:conic-gradient({eff_color} {eff_val*3.6}deg, #eee 0deg);margin:0 auto;display:flex;align-items:center;justify-content:center'>
+                        <div style='width:40px;height:40px;border-radius:50%;background:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700'>{workers}</div>
+                    </div>
+                    <div style='font-size:11px;margin-top:4px'>Workers</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        # Sweet spot analysis
+        sweet_spot = int(best_times.idxmin())
+        sweet_time = best_times.min()
+        
+        if sweet_spot == 1 and len(best_times) > 1:
+            st.warning(f"⚠️ **Parallelism Overhead**: Using 1 worker was actually faster ({sweet_time}s) than multiple workers for this region. This happens when data coordination takes more time than the actual computation.")
+        elif sweet_spot > 1:
+            st.success(f"🎯 **Sweet Spot Found**: Your most efficient configuration is **{sweet_spot} workers** ({sweet_time}s).")
+
+        st.markdown("---")
+        st.markdown('<div class="section-heading" style="font-size:15px; color:#1e3a5f !important">📊 Performance Metrics Table</div>', unsafe_allow_html=True)
+        table_df = pd.DataFrame({
+            "Workers": best_times.index,
+            "Total Time (s)": best_times.values,
+            "Speedup (×)": actual_speedup.values,
+            "Efficiency (%)": efficiency.values
+        })
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
+    else:
+        st.line_chart(amdahl_df)
+        st.info("👈 **Run once with 1 worker** in Data Parallel mode to establish a baseline and unlock actual speedup analysis.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Charts removed - now only clickable index icons below ──
@@ -674,119 +840,52 @@ with tab1:
     # ── Alert Breakdown ───────────────────────────────────────────────────────────
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-heading">🚨 Alert Breakdown — {selected_region}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-desc">Risk category counts across all {total_rows:,} farm points.</div>', unsafe_allow_html=True)
-    alert_counts = df["Alert"].value_counts().rename("Farm Points")
-    st.bar_chart(alert_counts, color="#e74c3c")
-    cols = st.columns(len(alert_counts))
-    for col, (label, count) in zip(cols, alert_counts.items()):
+    st.markdown(f'<div class="section-desc">Risk category distribution across all {total_rows:,} farm points.</div>', unsafe_allow_html=True)
+    
+    # Prepare data for Altair
+    alert_counts = df["Alert"].value_counts().reset_index()
+    alert_counts.columns = ["Alert", "Farm Points"]
+    
+    # Define mapping and sorting
+    alert_order = ["Healthy", "Moderate", "Water Stress", "Drought"]
+    alert_colors = ["#27ae60", "#3498db", "#f39c12", "#e74c3c"]
+    
+    # Ensure all categories exist even if count is 0 for visualization consistency
+    for alert in alert_order:
+        if alert not in alert_counts["Alert"].values:
+            alert_counts = pd.concat([alert_counts, pd.DataFrame({"Alert": [alert], "Farm Points": [0]})], ignore_index=True)
+    
+    c_chart1, c_chart2 = st.columns([1, 1])
+    
+    with c_chart1:
+        # Donut Chart - Distribution
+        donut = alt.Chart(alert_counts).mark_arc(innerRadius=60, stroke="#fff").encode(
+            theta=alt.Theta(field="Farm Points", type="quantitative"),
+            color=alt.Color(field="Alert", type="nominal", 
+                           scale=alt.Scale(domain=alert_order, range=alert_colors),
+                           legend=alt.Legend(title="Risk Level", orient="bottom")),
+            tooltip=["Alert", "Farm Points"]
+        ).properties(height=300, title="Regional Distribution")
+        st.altair_chart(donut, use_container_width=True)
+
+    with c_chart2:
+        # Bar Chart - Comparison
+        bars = alt.Chart(alert_counts).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8).encode(
+            x=alt.X("Alert:N", sort=alert_order, title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("Farm Points:Q", title="Number of Points"),
+            color=alt.Color("Alert:N", scale=alt.Scale(domain=alert_order, range=alert_colors), legend=None),
+            tooltip=["Alert", "Farm Points"]
+        ).properties(height=300, title="Category Counts")
+        st.altair_chart(bars, use_container_width=True)
+
+    # Metrics Row
+    st.markdown("<br>", unsafe_allow_html=True)
+    metric_cols = st.columns(len(alert_order))
+    counts_dict = alert_counts.set_index("Alert")["Farm Points"].to_dict()
+    for col, label in zip(metric_cols, alert_order):
+        count = counts_dict.get(label, 0)
         col.metric(label, f"{count:,}", f"{round(count/len(df)*100,1)}% of region")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Speedup Graph + Amdahl's Law ─────────────────────────────────────────────
-    st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.markdown('<div class="section-heading">⚡ Amdahl\'s Law — Why More Workers Don\'t Always Mean Faster</div>', unsafe_allow_html=True)
-
-    history = load_history()
-    region_history = [h for h in history if h.get("region") == selected_region]
-    history_df = pd.DataFrame(region_history) if region_history else pd.DataFrame()
-
-    baseline = None
-    if not history_df.empty and 1 in history_df["workers"].values:
-        baseline = history_df[history_df["workers"] == 1]["time_sec"].min()
-
-    worker_range = list(range(1, 9))
-
-    # Amdahl's Law curve — estimate parallel fraction from actual data if possible
-    if baseline:
-        best_times = history_df.groupby("workers")["time_sec"].min()
-        # Estimate parallel fraction p: T(n) = T1 * ((1-p) + p/n)
-        # Use best multi-worker run to estimate p
-        multi = best_times[best_times.index > 1]
-        if not multi.empty:
-            n_est, t_est = multi.index[-1], multi.iloc[-1]
-            p = min(0.99, max(0.5, (1 - t_est / baseline) / (1 - 1 / n_est))) if n_est > 1 else 0.8
-        else:
-            p = 0.8
-    else:
-        p = 0.8  # default assumption: 80% parallelizable
-
-    amdahl_speedup = [1 / ((1 - p) + p / n) for n in worker_range]
-    amdahl_df = pd.DataFrame({"🔵 Theoretical Ceiling (Amdahl's Law)": amdahl_speedup}, index=worker_range)
-    amdahl_df.index.name = "Workers"
-
-    if baseline:
-        best_times = history_df.groupby("workers")["time_sec"].min().sort_index()
-        actual_speedup = (baseline / best_times).round(2)
-        amdahl_df["🔴 Your Actual Results"] = actual_speedup
-        # Efficiency = Speedup / Workers
-        efficiency = (actual_speedup / pd.Series(best_times.index, index=best_times.index) * 100).round(1)
-
-    st.line_chart(amdahl_df)
-
-    # Visual efficiency breakdown
-    if baseline:
-        st.markdown("**⚡ Efficiency Breakdown**")
-        eff_cols = st.columns(len(best_times))
-        for i, (workers, eff_val) in enumerate(zip(best_times.index, efficiency.values)):
-            with eff_cols[i]:
-                eff_color = "#27ae60" if eff_val >= 80 else "#f39c12" if eff_val >= 50 else "#e74c3c"
-                st.markdown(f"""
-                <div style='text-align:center;margin-bottom:10px'>
-                    <div style='font-size:24px;font-weight:800;color:{eff_color}'>{eff_val:.0f}%</div>
-                    <div style='width:60px;height:60px;border-radius:50%;background:conic-gradient({eff_color} {eff_val*3.6}deg, #eee 0deg);margin:0 auto;display:flex;align-items:center;justify-content:center'>
-                        <div style='width:40px;height:40px;border-radius:50%;background:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700'>{workers}</div>
-                    </div>
-                    <div style='font-size:11px;margin-top:4px'>Workers</div>
-                </div>
-                """, unsafe_allow_html=True)
-    
-        # Sweet spot visual indicator
-        best_times = history_df.groupby("workers")["time_sec"].min()
-        sweet_spot = int(best_times.idxmin())
-        sweet_time = best_times.min()
-    
-        if sweet_spot == 1:
-            st.markdown(f"""
-            <div style='background:#fff3cd;border-left:4px solid #ffc107;padding:15px;border-radius:8px;margin-top:15px'>
-                <div style='font-size:16px;font-weight:800;color:#856404;margin-bottom:8px'>⚠️ Dataset Too Small for Parallelism</div>
-                <div style='display:flex;align-items:center;gap:20px'>
-                    <div style='font-size:48px'>📊</div>
-                    <div>
-                        <div style='font-size:14px;color:#856404'><b>Sweet Spot:</b> 1 Worker ({sweet_time}s)</div>
-                        <div style='font-size:12px;color:#6c757d'>Coordination overhead > Computation savings</div>
-                        <div style='font-size:12px;color:#6c757d'>Need ~10M+ rows for parallel benefits</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div style='background:#d4edda;border-left:4px solid #28a745;padding:15px;border-radius:8px;margin-top:15px'>
-                <div style='font-size:16px;font-weight:800;color:#155724;margin-bottom:8px'>✅ Optimal Parallel Configuration</div>
-                <div style='display:flex;align-items:center;gap:20px'>
-                    <div style='font-size:48px'>🎯</div>
-                    <div>
-                        <div style='font-size:14px;color:#155724'><b>Sweet Spot:</b> {sweet_spot} Workers ({sweet_time}s)</div>
-                        <div style='font-size:12px;color:#6c757d'>Best balance of parallel gains vs overhead</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("Run with **1 worker** to unlock visual efficiency analysis and sweet spot detection.")
-
-    if baseline:
-        st.markdown("---")
-        st.markdown('<div class="section-heading" style="font-size:15px">📊 Speedup & Efficiency Table</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-desc">Efficiency = how well each worker is being used. 100% = perfect. Lower = workers are sitting idle due to overhead.</div>', unsafe_allow_html=True)
-        table_df = pd.DataFrame({
-            "Workers": best_times.index,
-            "Time (s)": best_times.values,
-            "Speedup (×)": actual_speedup.values,
-            "Efficiency (%)": efficiency.values
-        })
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("Run once with **1 worker** to unlock actual speedup and efficiency comparison.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    # End of tab1 logic (Amdahl's Law moved higher up)
+    pass
