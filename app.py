@@ -247,6 +247,7 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["🌾 Agricultural Dashboard", "🧪 Soil Analysis Report", "🔍 Region Comparison"])
 
 with tab2:
+    st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
     SOIL_REPORT_FILE = RESULT_FILE.replace("_results.csv", "_soil_report.json")
     col_run1, col_run2 = st.columns([2, 3])
     with col_run1:
