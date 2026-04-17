@@ -88,7 +88,7 @@ def save_history(entry):
 
 # ── Page Header ───────────────────────────────────────────────────────────────
 st.markdown("# 🌾 Agricultural Risk Monitor")
-st.markdown("**Satellite-powered parallel analysis** using MPI distributed computing.")
+
 st.divider()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
