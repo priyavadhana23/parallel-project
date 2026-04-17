@@ -475,18 +475,6 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
 
-        # Disclaimer
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='background:#f8f9fa;border-radius:10px;padding:16px 20px;border:1px solid #dee2e6'>
-            <div style='font-size:12px;font-weight:700;color:#666;margin-bottom:6px'>⚠️ DISCLAIMER</div>
-            <div style='font-size:11px;color:#888;line-height:1.7'>
-                This report is generated from satellite imagery (Sentinel-2, 10m resolution) using MPI parallel computing.
-                Soil parameters are estimated using spectral index correlations and may differ from laboratory tests.
-                Values are region-level averages across all analyzed pixels. Not to be used as sole basis for agricultural decisions.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
 with tab1:
     # ── Dashboard Header ────────────────────────────────────────────────────────
