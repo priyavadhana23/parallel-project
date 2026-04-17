@@ -239,7 +239,7 @@ if not os.path.exists(RESULT_FILE):
 
 df = pd.read_csv(RESULT_FILE)
 
-st.markdown(f"### 📍 Showing results for: {selected_region} — {total_rows:,} farm points")
+
 st.divider()
 
 
